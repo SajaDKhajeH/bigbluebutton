@@ -189,6 +189,7 @@ export interface Application {
   userJoinPushAlerts: boolean
   userLeaveAudioAlerts: boolean
   userLeavePushAlerts: boolean
+  userAwayPushAlerts: boolean
   raiseHandAudioAlerts: boolean
   raiseHandPushAlerts: boolean
   guestWaitingAudioAlerts: boolean

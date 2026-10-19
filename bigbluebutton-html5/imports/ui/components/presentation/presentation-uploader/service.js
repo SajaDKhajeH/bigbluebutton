@@ -13,8 +13,40 @@ import useMeeting from '/imports/ui/core/hooks/useMeeting';
 const TOKEN_TIMEOUT = 5000;
 const POD_ID = 'DEFAULT_PRESENTATION_POD';
 
+//LIMS Start
+
+const portalFutch = (portalUrl, opts = {}, onProgress) => new Promise((res, rej) => {
+  const xhr = new XMLHttpRequest();
+  const req = `${portalUrl}/Api/BBBV3/UploadFileFormAP`;
+
+  xhr.open(opts.method || 'POST', req);
+  
+  Object.entries(opts.headers || {}).forEach(([key, value]) => {
+    xhr.setRequestHeader(key, value);
+  });
+
+  xhr.onload = (e) => {
+    if (e.target.status !== 200) {
+      return rej({ code: e.target.status, message: e.target.statusText });
+    }
+    res(e.target.responseText);
+  };
+
+  xhr.onerror = rej;
+
+  if (xhr.upload && onProgress) {
+    xhr.upload.addEventListener('progress', onProgress, false);
+  }
+
+  xhr.send(opts.body);
+});
+
+
+//LIMS End
+
+
 // fetch doesn't support progress. So we use xhr which support progress.
-const futch = (url, opts = {}, onProgress) => new Promise((res, rej) => {
+const bbbFutch = (url, opts = {}, onProgress) => new Promise((res, rej) => {
   const xhr = new XMLHttpRequest();
 
   xhr.open(opts.method || 'get', url);
@@ -79,6 +111,10 @@ const requestPresentationUploadToken = (
 });
 
 const uploadAndConvertPresentation = (
+  presentationId,
+  portalUrl,
+  fullAddress,
+  fileId,//filename by extention
   filename,
   temporaryPresentationId,
   file,
@@ -90,19 +126,44 @@ const uploadAndConvertPresentation = (
   onConversion,
   current,
 ) => {
-  if (!file) return Promise.resolve();
+  if (!file && !fullAddress) return Promise.resolve();
 
   const data = new FormData();
   data.append('fileUpload', file);
   data.append('conference', meetingId);
   data.append('room', meetingId);
   data.append('temporaryPresentationId', temporaryPresentationId);
-
-  // TODO: Currently the uploader is not related to a POD so the id is fixed to the default
   data.append('pod_id', POD_ID);
-
   data.append('is_downloadable', downloadable);
   data.append('current', current);
+
+  if (fullAddress) {
+    data.append('presentation_name', filename);
+    data.append('Filename', filename);
+    data.append('fileID', presentationId);
+    data.append('fullAddress', fullAddress);
+
+    return requestPresentationUploadToken(temporaryPresentationId, meetingId, filename)
+      .then((token) => {
+        const bbbUrl = `https://${window.document.location.hostname}${endpoint.replace('upload', `${token}/upload`)}`;
+        data.append('bbbUrl', bbbUrl);
+
+        const opts = {
+          method: 'POST',
+          body: data,
+        };
+
+        return portalFutch(portalUrl, opts, onProgress);
+      })
+      .catch((error) => {
+        logger.debug({
+          logCode: 'presentation_uploader_service',
+          extraInfo: { error },
+        }, 'Generic presentation upload exception catcher');
+        onUpload({ error: true, done: true, status: error.code });
+        return Promise.resolve();
+      });
+  }
 
   const opts = {
     method: 'POST',
@@ -110,25 +171,28 @@ const uploadAndConvertPresentation = (
   };
 
   return requestPresentationUploadToken(temporaryPresentationId, meetingId, filename)
-    .then((token) => futch(endpoint.replace('upload', `${token}/upload`), opts, onProgress))
-    // Trap the error so we can have parallel upload
+    .then((token) => bbbFutch(endpoint.replace('upload', `${token}/upload`), opts, onProgress))
     .catch((error) => {
       logger.debug({
         logCode: 'presentation_uploader_service',
-        extraInfo: {
-          error,
-        },
+        extraInfo: { error },
       }, 'Generic presentation upload exception catcher');
       onUpload({ error: true, done: true, status: error.code });
       return Promise.resolve();
     });
 };
 
+
 const uploadAndConvertPresentations = (
   presentationsToUpload,
   meetingId,
   uploadEndpoint,
+  portalUrl,
 ) => Promise.all(presentationsToUpload.map((p) => uploadAndConvertPresentation(
+  p.presentationId,
+  portalUrl,
+  p.fullAddress,
+  p.id,
   p.name,
   p.presentationId, p.file, p.downloadable, meetingId, uploadEndpoint,
   p.onUpload, p.onProgress, p.onConversion, p.current,
@@ -145,20 +209,20 @@ const persistPresentationChanges = (
   uploadEndpoint,
   setPresentation,
   removePresentation,
+  portalUrl,
 ) => {
   const presentationsToUpload = newState.filter((p) => !p.uploadCompleted);
   const presentationsToRemove = oldState.filter((p) => !newState.find(
     (u) => u.presentationId === p.presentationId,
   ));
-
   let currentPresentation = newState.find((p) => p.current);
-  return uploadAndConvertPresentations(presentationsToUpload, Auth.meetingID, uploadEndpoint)
+  return uploadAndConvertPresentations(presentationsToUpload, Auth.meetingID, uploadEndpoint, portalUrl)
     .then((presentations) => {
       if (!presentations.length && !currentPresentation) return Promise.resolve();
       // Update the presentation with their new ids
       presentations.forEach((p, i) => {
         if (p === undefined) return;
-        presentationsToUpload[i].onDone(p.presentationId);
+        presentationsToUpload[i].onDone(p.presentationId || p);
       });
 
       return Promise.resolve(presentations);
@@ -172,17 +236,18 @@ const persistPresentationChanges = (
       // If its a newly uploaded presentation we need to get it from promise result
       if (currentPresentation?.uploadInProgress) {
         const currentIndex = presentationsToUpload.findIndex((p) => p === currentPresentation);
-        currentPresentation = presentations[currentIndex];
+        currentPresentation = presentationsToUpload[currentIndex];
+
       }
 
       // skip setting as current if error happened
       if (currentPresentation?.conversion?.error) {
         return Promise.resolve();
       }
-
       return setPresentation(currentPresentation?.presentationId);
     })
     .then(removePresentations.bind(null, presentationsToRemove, removePresentation));
+    
 };
 
 const handleSavePresentation = (
@@ -193,6 +258,7 @@ const handleSavePresentation = (
   setPresentation,
   removePresentation,
   isPresentationEnabled,
+  portalUrl,
 ) => {
   if (!isPresentationEnabled) {
     return null;
@@ -219,6 +285,7 @@ const handleSavePresentation = (
     PRESENTATION_CONFIG.uploadEndpoint,
     setPresentation,
     removePresentation,
+    portalUrl,
   );
 };
 

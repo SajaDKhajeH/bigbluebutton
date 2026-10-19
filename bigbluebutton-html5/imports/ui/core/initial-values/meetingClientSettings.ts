@@ -121,6 +121,7 @@ export const meetingClientSettingsInitialValues: MeetingClientSettings = {
           userJoinPushAlerts: false,
           userLeaveAudioAlerts: false,
           userLeavePushAlerts: false,
+          userAwayPushAlerts: true,
           raiseHandAudioAlerts: true,
           raiseHandPushAlerts: true,
           guestWaitingAudioAlerts: true,

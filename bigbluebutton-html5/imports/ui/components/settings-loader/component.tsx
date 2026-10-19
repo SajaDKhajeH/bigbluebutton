@@ -11,6 +11,34 @@ import MeetingStaticDataStore from '/imports/ui/core/singletons/meetingStaticDat
 import { MeetingStaticData } from '/imports/ui/Types/meetingStaticData';
 
 const connectionTimeout = 60000;
+const FAVICON_ELEMENT_ID = 'bbb-dynamic-favicon';
+
+const ensureFaviconElement = (): HTMLLinkElement => {
+  let faviconElement = document.getElementById(FAVICON_ELEMENT_ID) as HTMLLinkElement | null;
+
+  if (!faviconElement) {
+    faviconElement = document.createElement('link');
+    faviconElement.id = FAVICON_ELEMENT_ID;
+    faviconElement.rel = 'icon';
+    document.head.appendChild(faviconElement);
+  }
+
+  return faviconElement;
+};
+
+const updateMeetingFavicon = (
+  customLogoUrl?: string | null,
+  customDarkLogoUrl?: string | null,
+  useDarkLogo = false,
+) => {
+  const nextFaviconUrl = useDarkLogo && customDarkLogoUrl ? customDarkLogoUrl : customLogoUrl;
+
+  if (!nextFaviconUrl) return;
+
+  const faviconElement = ensureFaviconElement();
+  const cacheSeparator = nextFaviconUrl.includes('?') ? '&' : '?';
+  faviconElement.href = `${nextFaviconUrl}${cacheSeparator}v=${Date.now()}`;
+};
 
 type Meeting = MeetingStaticData & {
   clientSettings: {
@@ -37,6 +65,10 @@ const SettingsLoader: React.FC<SettingsLoaderProps> = (props) => {
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState<boolean>(false);
   const timeoutRef = React.useRef<ReturnType<typeof setTimeout>>();
+  const meetingBrandingRef = React.useRef<{
+    customLogoUrl?: string | null;
+    customDarkLogoUrl?: string | null;
+  } | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -80,6 +112,11 @@ const SettingsLoader: React.FC<SettingsLoaderProps> = (props) => {
             const settings = clientSettings.clientSettingsJson;
             window.meetingClientSettings = JSON.parse(JSON.stringify(settings));
             MeetingStaticDataStore.setMeetingData(staticData);
+            meetingBrandingRef.current = {
+              customLogoUrl: staticData.customLogoUrl,
+              customDarkLogoUrl: staticData.customDarkLogoUrl,
+            };
+            updateMeetingFavicon(staticData.customLogoUrl, staticData.customDarkLogoUrl);
             setMeetingSettings(settings);
             setLoading(false);
             setSettingsFetched(true);
@@ -92,6 +129,26 @@ const SettingsLoader: React.FC<SettingsLoaderProps> = (props) => {
         setLoading(false);
         setError('Error fetching GraphQL URL: '.concat(error.message || ''));
       });
+  }, []);
+
+  useEffect(() => {
+    const handleDarkModeChange = (event: Event) => {
+      const branding = meetingBrandingRef.current;
+      if (!branding) return;
+
+      const { detail } = event as CustomEvent<{ enabled: boolean }>;
+      updateMeetingFavicon(
+        branding.customLogoUrl,
+        branding.customDarkLogoUrl,
+        detail?.enabled ?? false,
+      );
+    };
+
+    window.addEventListener('darkmodechange', handleDarkModeChange);
+
+    return () => {
+      window.removeEventListener('darkmodechange', handleDarkModeChange);
+    };
   }, []);
 
   return (

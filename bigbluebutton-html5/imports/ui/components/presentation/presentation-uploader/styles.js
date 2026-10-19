@@ -27,6 +27,8 @@ import {
   headingsFontWeight,
   fontSizeLarge,
   fontSizeLarger,
+  fontSizeBase,
+  fontSizeSmall,
 } from '/imports/ui/stylesheets/styled-components/typography';
 import {
   colorBorder,
@@ -621,6 +623,138 @@ const Title = styled.h1`
   font-weight: ${headingsFontWeight};
 `;
 
+
+
+
+
+//LIMS Start
+
+const TabContainer = styled.div`
+  display: flex;
+  border-bottom: 2px solid ${colorGrayLighter};
+  margin-bottom: 1.5rem;
+  gap: 0.5rem;
+  padding-left: 0.5rem;
+  [dir="rtl"] & {
+  padding-left: 0;
+  padding-right: 0.5rem;
+}
+`;
+
+const TabButton = styled.button`
+  padding: 0.75rem 1.25rem;
+  cursor: pointer;
+  background-color: transparent;
+  border: none;
+  border-bottom: ${({ $isActive }) => ($isActive ? `3px solid ${colorPrimary}` : '3px solid transparent')};
+  color: ${({ $isActive }) => ($isActive ? colorPrimary : colorGray)};
+  font-weight: ${({ $isActive }) => ($isActive ? 600 : 500)};
+  font-size: 1rem;
+  transition: all 0.2s ease-in-out;
+  outline: none;
+  border-top-left-radius: ${borderRadius};
+  border-top-right-radius: ${borderRadius};
+
+  &:hover {
+    color: ${colorPrimary};
+  }
+
+  &:focus {
+    outline: 2px solid ${colorPrimary};
+    outline-offset: 2px;
+  }
+`;
+
+const PortalFileList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: ${uploadListHeight};
+  overflow-y: auto;padding: 0.5rem;
+`;
+
+const PortalFileItem = styled.div`
+  display: flex;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px solid ${colorGrayLighter};
+  border-radius: ${borderRadius};
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  background-color: ${({ $isSelected }) => ($isSelected ? colorOffWhite : 'transparent')};
+
+  &:hover {
+    background-color: ${colorOffWhite};
+    border-color: ${colorPrimary};
+  }
+`;
+
+const PortalFileIcon = styled(Icon)`
+  margin-right: 0.75rem;
+  color: ${colorGray};
+
+  [dir="rtl"] & {
+    margin-right: 0;
+    margin-left: 0.75rem;
+  }
+`;
+
+const PortalFileName = styled.span`
+  flex: 1;
+  font-size: ${fontSizeBase};
+  color: ${colorText};
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const BreadcrumbContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;font-size: ${fontSizeSmall};
+  color: ${colorGray};
+`;
+
+const BreadcrumbItem = styled.button`
+  background: none;
+  border: none;
+  color: ${colorPrimary};
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: ${borderRadius};
+  transition: background-color 0.2s;
+
+  &:hover {
+    background-color: ${colorOffWhite};
+  }
+
+  &:disabled {
+    color: ${colorGray};
+    cursor: default;
+  }
+`;
+
+const BreadcrumbSeparator = styled.span`
+  color: ${colorGray};
+`;
+
+const BackButton = styled.button`
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  
+  &:hover {
+    background: #e0e0e0;
+  }
+`;
+
+//LIMS End
+
+
 export default {
   UploadRow,
   FileLine,
@@ -665,4 +799,15 @@ export default {
   SetCurrentAction,
   Head,
   Title,
+    //LIMS
+  TabContainer,
+  TabButton,
+  PortalFileList,
+  PortalFileItem,
+  PortalFileIcon,
+  PortalFileName,
+  BreadcrumbContainer,
+  BreadcrumbItem,
+  BreadcrumbSeparator,
+  BackButton,
 };

@@ -22,7 +22,7 @@ import {
 import { Message } from '/imports/ui/Types/message';
 import ChatMessage, { ChatMessageRef } from './chat-message/component';
 import { setLoadedMessageGathering } from '/imports/ui/core/hooks/useLoadedChatMessages';
-import { ChatEvents } from '/imports/ui/core/enums/chat';
+import { ChatEvents, ChatMessageType } from '/imports/ui/core/enums/chat';
 import { useStorageKey, STORAGES } from '/imports/ui/services/storage/hooks';
 import Storage from '/imports/ui/services/storage/in-memory';
 import { getValueByPointer } from '/imports/utils/object-utils';
@@ -237,7 +237,9 @@ const ChatListPage: React.FC<ChatListPageProps> = ({
 
   return (
     <React.Fragment key={`messagePage-${page}`}>
-      {messages.map((message, index, messagesArray) => {
+      {messages
+        .filter((message) => message.messageType !== ChatMessageType.USER_AWAY_STATUS_MSG)
+        .map((message, index, messagesArray) => {
         const previousMessage = messagesArray[index - 1];
         return (
           <ChatMessage

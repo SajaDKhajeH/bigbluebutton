@@ -441,22 +441,23 @@ public:
         hidden: true
       - id: low
         name: Low
-        default: false
+        default: true
         bitrate: 100
       - id: medium
         name: Medium
-        default: true
+        default: false
         bitrate: 200
       - id: high
         name: High
         default: false
-        bitrate: 500
-        constraints:
-          width: 1280
-          height: 720
-          frameRate: 15
+        bitrate: 300
+        #constraints:
+        #  width: 1280
+        #  height: 720
+        #  frameRate: 15
       - id: hd
         name: High definition
+        hidden: true
         default: false
         bitrate: 800
         constraints:
@@ -867,7 +868,7 @@ public:
     forceRelay: false
     # Firefox has a buggy ICE implementation. With mediasoup this leads to
     # connection problems unless all traffic is relayed through a turn server.
-    forceRelayOnFirefox: true
+    forceRelayOnFirefox: false
     mediaTag: '#remote-media'
     callTransferTimeout: 5000
     callHangupTimeout: 2000

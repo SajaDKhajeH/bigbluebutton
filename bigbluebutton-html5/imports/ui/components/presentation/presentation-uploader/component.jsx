@@ -13,6 +13,9 @@ import { getSettingsSingletonInstance } from '/imports/ui/services/settings';
 import Radio from '/imports/ui/components/common/radio/component';
 import { unique } from 'radash';
 import Session from '/imports/ui/services/storage/in-memory';
+import { uniqueId } from '/imports/utils/string-utils';
+import { v4 as uuid } from 'uuid';
+import { notify } from '/imports/ui/services/notification';
 
 const { isMobile } = deviceInfo;
 const propTypes = {
@@ -268,7 +271,39 @@ const intlMessages = defineMessages({
   actionsLabel: {
     id: 'app.presentation.actionsLabel',
     description: 'actions label',
+  },  
+  duplicateFileMessage: {
+    id: 'app.presentation.error.canNotAddDuplicateFile',
+    description: 'This file has already been added to the presentation list.',
+    defaultMessage: 'This file has already been added to the presentation list.',
   },
+   loadingTitle: { 
+    id: 'app.recording.loadingTitle', 
+    description: 'Loading data ...' 
+  },
+  backLabel: { 
+    id: 'app.audio.backLabel', 
+    description: 'Return' 
+  },
+  noItemToShow: { 
+    id: 'app.externalVideo.noItemToShow',
+     description: 'No item to display', 
+     defaultMessage: 'No item to display in this section.'
+     },
+  teacherTabTitle: { 
+    id: 'app.externalVideo.teacherTabTitle', 
+    description: 'Teacher tab title',
+     defaultMessage: 'Teacher' 
+    },
+  instituteTabTitle: { 
+    id: 'app.externalVideo.instituteTabTitle',
+     description: 'Institute tab title', 
+     defaultMessage: 'Institute' 
+    },
+    errorAndRetry: {
+      id: 'app.audioManager.genericError',
+      description: 'Error please retry', 
+    }
 });
 
 const handleDismissToast = (id) => toast.dismiss(id);
@@ -277,11 +312,24 @@ class PresentationUploader extends Component {
   constructor(props) {
     super(props);
 
+    this.abortController = null;
+
     this.state = {
+      toUploadCount: 0,
       presentations: props.presentations,
       disableActions: false,
       presExporting: new Set(),
       shouldDisableExportButtonForAllDocuments: false,
+
+      //LIMS Start
+      activeTab: 'upload', // 'upload' | 'teacher' | 'institute'
+      portalItems: [],
+      portalFolderHistory: [],
+      isLoadingPortal: false,
+      portalError: null,
+      portalTree: [],
+      //LIMS End
+
     };
 
     this.hasError = null;
@@ -306,7 +354,244 @@ class PresentationUploader extends Component {
     this.updateFileKey = this.updateFileKey.bind(this);
     this.getPresentationsToShow = this.getPresentationsToShow.bind(this);
     this.handleDownloadableChange = this.handleDownloadableChange.bind(this);
+
+    // LIMS
+    this.handleTabChange = this.handleTabChange.bind(this);
+    this.fetchPortalFiles = this.fetchPortalFiles.bind(this);
+    this.handlePortalItemClick = this.handlePortalItemClick.bind(this);
+    this.handlePortalBackClick = this.handlePortalBackClick.bind(this);
   }
+
+  // LIMS Start
+  
+getFileIcon(name) {
+  const ext = name.split('.').pop().toLowerCase();
+
+  if (['ppt', 'pptx'].includes(ext)) return '📊';
+  if (['doc', 'docx'].includes(ext)) return '📄';
+  if (ext === 'pdf') return '📕';  
+
+   if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(ext)) {
+    return '📸';
+  }
+
+  return '📄';
+}
+
+
+handleTabChange = (tab) => {
+  this.setState({ activeTab: tab }, () => {
+    if (tab !== 'upload') {
+      this.fetchPortalFiles();
+    }
+  });
+}
+
+fetchPortalFiles = async () => {
+    const { activeTab } = this.state;
+    const { portalUrl, meetingId } = this.props;
+    
+    if (activeTab === 'upload') return;
+
+    if (this.abortController) {
+      this.abortController.abort();
+    }
+    this.abortController = new AbortController();
+
+    this.setState({ isLoadingPortal: true, portalItems: [], portalFolderHistory: [] });
+
+    if (!portalUrl || !meetingId) {
+      this.setState({ isLoadingPortal: false });
+      return;
+    }
+
+    try {
+      const apiUrl = `${portalUrl}/Api/BBBV3/GetDocuments?internalMeetingId=${meetingId}&type=${activeTab}`;
+      const response = await fetch(apiUrl, { signal: this.abortController.signal });
+      
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+
+      if (data && data.Results) {
+        let nestedItems = this.buildTree(data.Results);
+        
+        if (activeTab === 'teacher' && nestedItems.length === 1 && nestedItems[0].isFolder) {
+          nestedItems = nestedItems[0].children || [];
+        }
+
+        this.setState({ portalItems: nestedItems, isLoadingPortal: false });
+      } else {
+        this.setState({ portalItems: [], isLoadingPortal: false });
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') return; // Ignore abort
+      console.error("Error fetching portal files:", error);
+      this.setState({ portalItems: [], isLoadingPortal: false });
+    }
+  }
+
+
+buildTree = (flatData) => {
+  const nodes = flatData.map(item => ({
+    id: item.ID,
+    name: item.Title,
+    url: item.Url ? item.Url.replace(/\\/g, '/') : '',
+    isFolder: item.Type === 1,
+    fileType: item.FileType,
+    fullAddress: item.FullAddress,
+    parentDir: item.directories,
+    children: []
+  }));
+
+  const tree = [];
+  const folderMap = new Map();
+
+  nodes.forEach(node => {
+    if (node.isFolder && node.fullAddress) {
+      const normalizedPath = node.fullAddress.replace(/\\/g, '/').replace(/\/$/, '');
+      folderMap.set(normalizedPath, node);
+    }
+  });
+
+  nodes.forEach(node => {
+    if (node.parentDir) {
+      const normalizedParent = node.parentDir.replace(/\\/g, '/').replace(/\/$/, '');
+      const parentFolder = folderMap.get(normalizedParent);
+
+      if (parentFolder) {
+        parentFolder.children.push(node);
+      } else {
+        tree.push(node);
+      }
+    } else {
+      tree.push(node);
+    }
+  });
+
+  const sortNodes = (nodeList) => {
+    nodeList.sort((a, b) => {
+      if (a.isFolder && !b.isFolder) return -1;
+      if (!a.isFolder && b.isFolder) return 1;
+      return 0;
+    });
+
+    nodeList.forEach(node => {
+      if (node.children && node.children.length > 0) {
+        sortNodes(node.children);
+      }
+    });
+
+    return nodeList;
+  };
+  return sortNodes(tree);
+}
+
+handlePortalBackClick = () => {
+  const { portalFolderHistory } = this.state;
+  
+  if (portalFolderHistory.length > 0) {
+    const prevItems = portalFolderHistory[portalFolderHistory.length - 1];
+    this.setState({
+      portalItems: prevItems,
+      portalFolderHistory: portalFolderHistory.slice(0, -1)
+    });
+  }
+}
+
+handlePortalItemClick = (item) => {
+  if (item.isFolder) {
+    const { portalItems, portalFolderHistory } = this.state;
+    this.setState({
+      portalFolderHistory: [...portalFolderHistory, portalItems],
+      portalItems: item.children || []
+    });
+  } else {
+    this.handleAddPortalFile(item);
+  }
+}
+
+handleFiledropServer(files, fullAddress) {
+
+  const { intl } = this.props;
+  const presentationsToUpload = files.map((file) => {
+  const tempId = uniqueId(uuid());
+  const fileName = file;
+  file = null;
+            return {
+                presentationId :tempId,
+                mimeType: '',
+                fileID: tempId,
+                file,
+                downloadable: false,
+                isRemovable: true,
+                id: tempId,
+                filename: fileName,
+                name: fileName,
+                fullAddress: fullAddress,
+                exportation: { error: false },
+                current: true,
+                conversion: { done: false, error: false },
+                upload: { done: false, error: false, progress: 0 },
+                onConversion: (conversion) => {
+                  this.deepMergeUpdateFileKey(tempId, 'conversion', conversion);
+                },
+                onUpload: (upload) => {
+                  this.deepMergeUpdateFileKey(tempId, 'upload', upload);
+                  if (upload.error) {
+                    if (toast.isActive(this.exportToastId)) {
+                        handleDismissToast(this.exportToastId);
+                    }
+                    notify(intl.formatMessage(intlMessages.errorAndRetry), 'error');
+                  }
+                },
+                onDone: (status) => {
+                  if (status !== 'upload-success') {
+                    notify(intl.formatMessage(intlMessages.errorAndRetry), 'error');
+                    return;
+                  }
+                  const { presentations: newPresentations } = this.state;
+                  const newId = newPresentations.find(p => p.uploadTemporaryId === tempId)?.presentationId;
+                  this.updateFileKey(tempId, 'id', newId);
+                  this.handleCurrentChange(newId);
+                  setTimeout(() => {
+                    this.handleConfirm();
+                  }, 1001);
+                },
+            };
+        });
+     
+        this.setState(({ presentations, toUploadCount }) => {
+
+            const updatedPrevious = presentations.map(p => ({ ...p, current: false }));
+            const newPresentations = updatedPrevious.concat(presentationsToUpload);
+
+            return {
+              presentations: newPresentations,
+              toUploadCount: toUploadCount + presentationsToUpload.length,
+            };
+          });
+
+        // if (rejected.length > 0) {
+        //   notify(intl.formatMessage(intlMessages.rejectedError), 'error');
+        // }
+    }
+
+handleAddPortalFile = (item) => {
+  const { presentations } = this.state;
+  const { intl } = this.props;
+
+  const exists = presentations.some(p => p.filename === item.id && p.fullAddress === item.fullAddress);
+  if (exists) {
+    notify(intl.formatMessage(intlMessages.duplicateFileMessage), 'error');
+    return;
+  }
+
+ let files = [];
+ files.push(item.id);
+ this.handleFiledropServer(files, item.fullAddress);
+}
+
+  // LIMS End
 
   componentDidUpdate(prevProps) {
     const {
@@ -505,6 +790,7 @@ class PresentationUploader extends Component {
       setPresentation,
       removePresentation,
       presentationEnabled,
+      portalUrl,
     } = this.props;
     if (withErr) {
       const { presentations } = this.state;
@@ -538,7 +824,8 @@ class PresentationUploader extends Component {
         propPresentations,
         setPresentation,
         removePresentation,
-        presentationEnabled);
+        presentationEnabled,
+        portalUrl);
       if (hasUploading) {
         this.setState({
           presentations: merged,
@@ -627,6 +914,7 @@ class PresentationUploader extends Component {
       setPresentation,
       removePresentation,
       presentationEnabled,
+      portalUrl,
     } = this.props;
     const { disableActions, presentations } = this.state;
     const presentationsToSave = presentations;
@@ -662,6 +950,7 @@ class PresentationUploader extends Component {
         setPresentation,
         removePresentation,
         presentationEnabled,
+        portalUrl,
       )
         .then(() => {
           const hasError = presentations.some((p) => !!p.uploadErrorMsgKey);
@@ -1080,65 +1369,133 @@ class PresentationUploader extends Component {
     );
   }
 
-  render() {
-    const {
-      isOpen,
-      isPresenter,
-      intl,
-      fileUploadConstraintsHint,
-    } = this.props;
-    if (!isPresenter) return null;
-    const { presentations, disableActions } = this.state;
+render() {
+  const {
+    isOpen,
+    isPresenter,
+    intl,
+    fileUploadConstraintsHint,
+    portalUrl
+  } = this.props;
+  if (!isPresenter) return null;
+  
+  const { presentations, disableActions, activeTab, portalItems, portalFolderHistory, isLoadingPortal } = this.state;
 
-    let hasNewUpload = false;
+  let hasNewUpload = false;
+  presentations.forEach((item) => {
+    if (item?.presentationId.indexOf(item.name) !== -1 && item.totalPagesUploaded === 0) hasNewUpload = true;
+  });
 
-    presentations.forEach((item) => {
-      if (item?.presentationId.indexOf(item.name) !== -1 && item.totalPagesUploaded === 0) hasNewUpload = true;
-    });
+  return (
+    <>
+      {isOpen ? (
+        <Styled.UploaderModal id="upload-modal">
+          <Styled.ModalInner>
+            <Styled.ModalHeader>
+              <Styled.Title>{intl.formatMessage(intlMessages.title)}</Styled.Title>
+              <Styled.ActionWrapper>
+                <Styled.DismissButton
+                  color="secondary"
+                  onClick={this.handleDismiss}
+                  label={intl.formatMessage(intlMessages.dismissLabel)}
+                  aria-describedby={intl.formatMessage(intlMessages.dismissDesc)}
+                />
+                <Styled.ConfirmButton
+                  data-test="confirmManagePresentation"
+                  color="primary"
+                  onClick={() => this.handleConfirm()}
+                  disabled={disableActions}
+                  label={hasNewUpload
+                    ? intl.formatMessage(intlMessages.uploadLabel)
+                    : intl.formatMessage(intlMessages.confirmLabel)}
+                />
+              </Styled.ActionWrapper>
+            </Styled.ModalHeader>
 
-    return (
-      <>
-        {isOpen
-          ? (
-            <Styled.UploaderModal id="upload-modal">
-              <Styled.ModalInner>
-                <Styled.ModalHeader>
-                  <Styled.Title>{intl.formatMessage(intlMessages.title)}</Styled.Title>
-                  <Styled.ActionWrapper>
-                    <Styled.DismissButton
-                      color="secondary"
-                      onClick={this.handleDismiss}
-                      label={intl.formatMessage(intlMessages.dismissLabel)}
-                      aria-describedby={intl.formatMessage(intlMessages.dismissDesc)}
-                    />
-                    <Styled.ConfirmButton
-                      data-test="confirmManagePresentation"
-                      color="primary"
-                      onClick={() => this.handleConfirm()}
-                      disabled={disableActions}
-                      label={hasNewUpload
-                        ? intl.formatMessage(intlMessages.uploadLabel)
-                        : intl.formatMessage(intlMessages.confirmLabel)}
-                    />
-                  </Styled.ActionWrapper>
-                </Styled.ModalHeader>
+            {`${intl.formatMessage(intlMessages.message)}`}
+            {this.renderPresentationList()}
+            {this.renderDownloadableWithAnnotationsHint()}
 
-                <Styled.ModalHint>
-                  {`${intl.formatMessage(intlMessages.message)}`}
-                  {fileUploadConstraintsHint ? this.renderExtraHint() : null}
+            {/* Tab Navigation */}
+            <Styled.TabContainer>
+              <Styled.TabButton
+                $isActive={activeTab === 'upload'}
+                onClick={() => this.handleTabChange('upload')}
+              >
+                📤 {intl.formatMessage(intlMessages.uploadLabel)}
+              </Styled.TabButton>
+              
+              {portalUrl && (
+              <>
+              <Styled.TabButton
+                $isActive={activeTab === 'teacher'}
+                onClick={() => this.handleTabChange('teacher')}
+              >
+                🏫 {intl.formatMessage(intlMessages.teacherTabTitle)}
+              </Styled.TabButton>
+              
+              <Styled.TabButton
+                $isActive={activeTab === 'institute'}
+                onClick={() => this.handleTabChange('institute')}
+              >
+                🏢 {intl.formatMessage(intlMessages.instituteTabTitle)}
+              </Styled.TabButton>
+              </>
+              )}
+            </Styled.TabContainer>
+
+    
+            {/* محتوای تب Upload */}
+            {activeTab === 'upload' && (
+              <><Styled.ModalHint>
+                {fileUploadConstraintsHint ? this.renderExtraHint() : null}
                 </Styled.ModalHint>
-                {this.renderPresentationList()}
-                {this.renderDownloadableWithAnnotationsHint()}
                 {isMobile ? this.renderPicDropzone() : null}
                 {this.renderDropzone()}
                 {this.renderExternalUpload()}
-              </Styled.ModalInner>
-            </Styled.UploaderModal>
-          )
-          : null}
-      </>
-    );
-  }
+              </>
+            )}
+
+            {/* محتوای تب‌های Teacher/Institute */}
+            {(activeTab === 'teacher' || activeTab === 'institute') && (
+              <Styled.PortalFileList>
+                {isLoadingPortal ? (
+                  <div>{intl.formatMessage(intlMessages.loadingTitle)}</div>
+                ) : (
+                  <>
+                    {portalFolderHistory.length > 0 && (
+                      <Styled.BackButton onClick={this.handlePortalBackClick}>
+                        🔙 {intl.formatMessage(intlMessages.backLabel)}
+                      </Styled.BackButton>
+                    )}
+                    
+                    {portalItems.length === 0 ? (
+                      <div>{intl.formatMessage(intlMessages.noItemToShow)}</div>
+                    ) : (
+                      portalItems.map(item => (
+                        <Styled.PortalFileItem
+                          key={item.id}
+                          onClick={() => this.handlePortalItemClick(item)}
+                        >
+                          <Styled.PortalFileIcon>
+                            {item.isFolder ? '📁' : this.getFileIcon(item.id)}
+                          </Styled.PortalFileIcon>
+                          <Styled.PortalFileName>
+                            {item.id}
+                          </Styled.PortalFileName>
+                        </Styled.PortalFileItem>
+                      ))
+                    )}
+                  </>
+                )}
+              </Styled.PortalFileList>
+            )}
+          </Styled.ModalInner>
+        </Styled.UploaderModal>
+      ) : null}
+    </>
+  );
+}
 }
 
 PresentationUploader.propTypes = propTypes;

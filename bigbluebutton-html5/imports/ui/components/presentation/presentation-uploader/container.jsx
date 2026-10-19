@@ -14,6 +14,7 @@ import {
 import {
   PRESENTATIONS_SUBSCRIPTION,
 } from '/imports/ui/components/whiteboard/queries';
+import Auth from '/imports/ui/services/auth';
 import useCurrentUser from '/imports/ui/core/hooks/useCurrentUser';
 import {
   PRESENTATION_SET_DOWNLOADABLE,
@@ -75,6 +76,21 @@ const PresentationUploaderContainer = (props) => {
   const isOpen = (useStorageKey('showUploadPresentationView') || false) && presentationEnabled;
   const selectedToBeNextCurrent = useStorageKey('selectedToBeNextCurrent') || null;
 
+
+  const meetingId = Auth.meetingID;
+const { data: userData } = useCurrentUser((user) => ({
+  avatar: user.avatar,
+}));
+const avatarUrl = userData?.avatar || '';
+let portalUrl = '';
+if (avatarUrl) {
+  try {
+    const urlObj = new URL(avatarUrl);
+    portalUrl = urlObj.searchParams.get('portalUrl') || '';
+  } catch (e) {
+  }
+}
+
   return userIsPresenter && (
     <ErrorBoundary Fallback={FallbackModal}>
       <PresentationUploader
@@ -103,6 +119,8 @@ const PresentationUploaderContainer = (props) => {
         handleFiledrop={Service.handleFiledrop}
         dispatchDisableDownloadable={Service.dispatchDisableDownloadable}
         dispatchEnableDownloadable={Service.dispatchEnableDownloadable}
+        portalUrl={portalUrl}
+        meetingId={meetingId}
         {...props}
       />
     </ErrorBoundary>

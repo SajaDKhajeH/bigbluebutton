@@ -9,6 +9,7 @@ import TalkingIndicator from '/imports/ui/components/nav-bar/nav-bar-graphql/tal
 import ConnectionStatusButton from '/imports/ui/components/connection-status/button/container';
 import ConnectionStatus from '/imports/ui/components/connection-status/component';
 import ConnectionStatusService from '/imports/ui/components/connection-status/service';
+import LanguageSelector from '/imports/ui/components/language-selector/component';
 import OptionsDropdownContainer from './options-dropdown/container';
 import TimerIndicatorContainer from '/imports/ui/components/timer/indicator/component';
 import browserInfo from '/imports/utils/browserInfo';
@@ -426,6 +427,7 @@ class NavBar extends Component {
               {renderPluginItems(rightPluginItems)}
               {ConnectionStatusService.isEnabled() ? <ConnectionStatusButton /> : null}
               {ConnectionStatusService.isEnabled() ? <ConnectionStatus /> : null}
+              {<LanguageSelector />}
               {isDirectLeaveButtonEnabled && isConnected
                 ? <LeaveMeetingButtonContainer amIModerator={amIModerator} /> : null}
               <OptionsDropdownContainer

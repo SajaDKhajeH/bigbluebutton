@@ -545,30 +545,38 @@ export const PresentationUploaderToast = ({
     setShowToast(presentationsToBeShowed.length > 0 && (!allPresentationsDone || forceShowToast));
   }, [presentationsToBeShowed]);
 
-  if (showToast && !toast.isActive(convertingToastIdRef.current)) {
-    toast(() => renderToastList(presentationsToBeShowed, intl), {
-      hideProgressBar: true,
-      autoClose: false,
-      newestOnTop: true,
-      closeOnClick: true,
-      className: 'presentationUploaderToast toastClass',
-      toastId: convertingToastIdRef.current,
-      onClose: () => {
-        setShowToast(false);
-        Session.setItem('presentationUploaderToastId', null);
-      },
-    });
-  } else if (!showToast && toast.isActive(convertingToastIdRef.current)) {
-    closeTimeoutReference.current = setTimeout(() => {
-      closeTimeoutReference.current = null;
-      handleDismissToast(convertingToastIdRef.current);
-    }, TIMEOUT_CLOSE_TOAST * 1000);
-  } else if (presentationsToBeShowed.length > 0) {
-  // } else {
-    toast.update(convertingToastIdRef.current, {
-      render: renderToastList(presentationsToBeShowed, intl),
-    });
-  }
+  useEffect(() => {
+    if (showToast && !toast.isActive(convertingToastIdRef.current)) {
+      toast(() => renderToastList(presentationsToBeShowed, intl), {
+        hideProgressBar: true,
+        autoClose: false,
+        newestOnTop: true,
+        closeOnClick: true,
+        className: 'presentationUploaderToast toastClass',
+        toastId: convertingToastIdRef.current,
+        onClose: () => {
+          setShowToast(false);
+          Session.setItem('presentationUploaderToastId', null);
+        },
+      });
+    } else if (!showToast && toast.isActive(convertingToastIdRef.current)) {
+      closeTimeoutReference.current = setTimeout(() => {
+        closeTimeoutReference.current = null;
+        handleDismissToast(convertingToastIdRef.current);
+      }, TIMEOUT_CLOSE_TOAST * 1000);
+    } else if (presentationsToBeShowed.length > 0) {
+      toast.update(convertingToastIdRef.current, {
+        render: renderToastList(presentationsToBeShowed, intl),
+      });
+    }
+
+    return () => {
+      if (closeTimeoutReference.current) {
+        clearTimeout(closeTimeoutReference.current);
+      }
+    };
+  }, [showToast, presentationsToBeShowed, intl]);
+
   return null;
 };
 
