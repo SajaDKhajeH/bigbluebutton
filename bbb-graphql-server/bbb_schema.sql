@@ -1285,16 +1285,22 @@ EXECUTE FUNCTION "update_chatMessage_messageSequence"();
 CREATE OR REPLACE FUNCTION "update_chat_totalMessages"()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- "userAwayStatusMsg" rows are invisible status carriers, not chat messages:
+    -- they must not affect "chat"."totalMessages", which the client uses for paging
     IF TG_OP = 'INSERT' THEN
-        UPDATE "chat"
-        SET "totalMessages" = COALESCE("totalMessages", 0) + 1
-        WHERE "meetingId" = NEW."meetingId"
-        AND "chatId" = NEW."chatId";
+        IF NEW."messageType" != 'userAwayStatusMsg' THEN
+            UPDATE "chat"
+            SET "totalMessages" = COALESCE("totalMessages", 0) + 1
+            WHERE "meetingId" = NEW."meetingId"
+            AND "chatId" = NEW."chatId";
+        END IF;
 	ELSIF TG_OP = 'DELETE' THEN
-        UPDATE "chat"
-        SET "totalMessages" = GREATEST(COALESCE("totalMessages", 0) - 1, 0)
-        WHERE "meetingId" = OLD."meetingId"
-        AND "chatId" = OLD."chatId";
+        IF OLD."messageType" != 'userAwayStatusMsg' THEN
+            UPDATE "chat"
+            SET "totalMessages" = GREATEST(COALESCE("totalMessages", 0) - 1, 0)
+            WHERE "meetingId" = OLD."meetingId"
+            AND "chatId" = OLD."chatId";
+        END IF;
 	END IF;
     RETURN NULL;
 END;
@@ -1379,6 +1385,9 @@ FOR EACH ROW EXECUTE FUNCTION "trg_chat_user_update_unread"();
 
 CREATE OR REPLACE FUNCTION "update_chat_user_totalUnreadMessagesInsert"() RETURNS TRIGGER AS $$
 BEGIN
+  IF NEW."messageType" = 'userAwayStatusMsg' THEN
+    RETURN NEW;
+  END IF;
   UPDATE "chat_user" cu
   SET "totalUnreadMessages" = coalesce("totalUnreadMessages",0) + 1
   WHERE cu."meetingId" = NEW."meetingId"
@@ -1471,10 +1480,13 @@ WHERE cu."visible" is true;
 CREATE INDEX "idx_v_chat_with" on chat_user("meetingId","chatId","userId") WHERE "chatId" != 'MAIN-PUBLIC-GROUP-CHAT';
 CREATE INDEX "idx_v_chat_message_unread" ON "chat_message"("meetingId","chatId","createdAt" asc);
 
+-- "userAwayStatusMsg" rows are excluded: they are invisible status carriers, not chat
+-- messages. This keeps limit/offset paging over this view aligned with "chat"."totalMessages"
 CREATE OR REPLACE VIEW "v_chat_message_public" AS
 SELECT cm.*
 FROM chat_message cm
-WHERE cm."chatId" = 'MAIN-PUBLIC-GROUP-CHAT';
+WHERE cm."chatId" = 'MAIN-PUBLIC-GROUP-CHAT'
+AND cm."messageType" != 'userAwayStatusMsg';
 
 CREATE OR REPLACE VIEW "v_chat_message_private" AS
 SELECT  cu."meetingId",
